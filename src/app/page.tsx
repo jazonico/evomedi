@@ -1,251 +1,485 @@
-import React from 'react'
-import Link from 'next/link'
+'use client'
 
-export default function HomePage() {
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 text-white overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute inset-0 opacity-20">
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10"></div>
+import React, { useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+
+// Tipos para los datos del paciente
+interface PatientData {
+  id: number
+  name: string
+  age: string
+  gender: string
+  diagnosis: string
+  subjective: string
+  objective: string
+  vitals: {
+    bp: string
+    hr: string
+    rr: string
+    temp: string
+    sat: string
+  }
+  labs: string
+  medications: string
+  notes: string
+  isComplete: boolean
+  evolution?: string
+}
+
+// Estado inicial de un paciente vacío
+const emptyPatient: Omit<PatientData, 'id'> = {
+  name: '',
+  age: '',
+  gender: '',
+  diagnosis: '',
+  subjective: '',
+  objective: '',
+  vitals: { bp: '', hr: '', rr: '', temp: '', sat: '' },
+  labs: '',
+  medications: '',
+  notes: '',
+  isComplete: false
+}
+
+export default function MedicalDashboard() {
+  const [patients, setPatients] = useState<PatientData[]>(
+    Array.from({ length: 12 }, (_, i) => ({ id: i + 1, ...emptyPatient }))
+  )
+  const [selectedPatient, setSelectedPatient] = useState<number | null>(null)
+  const [isGenerating, setIsGenerating] = useState<number | null>(null)
+
+  // Función para actualizar datos del paciente
+  const updatePatient = (id: number, field: keyof PatientData, value: any) => {
+    setPatients(prev => prev.map(p => 
+      p.id === id ? { ...p, [field]: value } : p
+    ))
+  }
+
+  // Función para actualizar signos vitales
+  const updateVitals = (id: number, vital: keyof PatientData['vitals'], value: string) => {
+    setPatients(prev => prev.map(p => 
+      p.id === id ? { ...p, vitals: { ...p.vitals, [vital]: value } } : p
+    ))
+  }
+
+  // Función para generar evolución con OpenAI
+  const generateEvolution = async (patientId: number) => {
+    const patient = patients.find(p => p.id === patientId)
+    if (!patient) return
+
+    setIsGenerating(patientId)
+
+    try {
+      const response = await fetch('/api/generate-evolution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientData: {
+            name: patient.name,
+            age: patient.age,
+            gender: patient.gender,
+            diagnosis: patient.diagnosis,
+            subjective: patient.subjective,
+            objective: patient.objective,
+            vitals: patient.vitals,
+            labs: patient.labs,
+            medications: patient.medications,
+            notes: patient.notes
+          }
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        updatePatient(patientId, 'evolution', data.evolution)
+        updatePatient(patientId, 'isComplete', true)
+      } else {
+        alert('Error al generar evolución. Verifica tu API key de OpenAI.')
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      alert('Error de conexión al generar evolución.')
+    } finally {
+      setIsGenerating(null)
+    }
+  }
+
+  // Función para resetear paciente
+  const resetPatient = (id: number) => {
+    setPatients(prev => prev.map(p => 
+      p.id === id ? { id, ...emptyPatient } : p
+    ))
+  }
+
+  // Componente de casilla de paciente
+  const PatientCard = ({ patient }: { patient: PatientData }) => {
+    const hasData = patient.name || patient.diagnosis || patient.subjective || patient.objective
+    const isSelected = selectedPatient === patient.id
+
+    return (
+      <Card 
+        className={`cursor-pointer transition-all duration-300 ${
+          isSelected 
+            ? 'ring-2 ring-blue-500 shadow-lg' 
+            : hasData 
+              ? 'border-green-200 bg-green-50 hover:shadow-md' 
+              : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+        } ${patient.isComplete ? 'bg-blue-50 border-blue-300' : ''}`}
+        onClick={() => setSelectedPatient(patient.id)}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex justify-between items-start">
+            <CardTitle className="text-lg">
+              Cama {patient.id}
+            </CardTitle>
+            <div className="flex gap-2">
+              {patient.isComplete && (
+                <Badge className="bg-blue-500 text-white">Completo</Badge>
+              )}
+              {hasData && !patient.isComplete && (
+                <Badge variant="outline" className="border-green-500 text-green-700">
+                  En progreso
+                </Badge>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {patient.name ? (
+            <div className="space-y-2">
+              <p className="font-medium text-gray-900">{patient.name}</p>
+              <p className="text-sm text-gray-600">{patient.age} años, {patient.gender}</p>
+              {patient.diagnosis && (
+                <p className="text-sm text-blue-600 font-medium">{patient.diagnosis}</p>
+              )}
+              {patient.vitals.bp && (
+                <div className="text-xs text-gray-500">
+                  PA: {patient.vitals.bp} | FC: {patient.vitals.hr}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-gray-400 text-sm">Cama disponible</p>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Componente del formulario de paciente
+  const PatientForm = ({ patient }: { patient: PatientData }) => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">
+          Paciente - Cama {patient.id}
+        </h2>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => resetPatient(patient.id)}
+            className="text-red-600 border-red-300 hover:bg-red-50"
+          >
+            Limpiar
+          </Button>
+          <Button 
+            onClick={() => generateEvolution(patient.id)}
+            disabled={!patient.name || !patient.diagnosis || isGenerating === patient.id}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {isGenerating === patient.id ? 'Generando...' : 'Generar Evolución'}
+          </Button>
+        </div>
       </div>
-      
-      {/* Navigation */}
-      <nav className="relative z-10 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-cyan-400 rounded-lg flex items-center justify-center">
-              <span className="text-xl font-bold">🏥</span>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Datos Básicos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Datos del Paciente</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nombre Completo
+              </label>
+              <input
+                type="text"
+                value={patient.name}
+                onChange={(e) => updatePatient(patient.id, 'name', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: Juan Pérez González"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Edad
+                </label>
+                <input
+                  type="text"
+                  value={patient.age}
+                  onChange={(e) => updatePatient(patient.id, 'age', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="65"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Sexo
+                </label>
+                <select
+                  value={patient.gender}
+                  onChange={(e) => updatePatient(patient.id, 'gender', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Seleccionar</option>
+                  <option value="Masculino">Masculino</option>
+                  <option value="Femenino">Femenino</option>
+                </select>
+              </div>
             </div>
             <div>
-              <h1 className="text-xl font-bold">EvoMedi</h1>
-              <p className="text-xs text-blue-200">Sistema Médico Hospitalario</p>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Diagnóstico Principal
+              </label>
+              <input
+                type="text"
+                value={patient.diagnosis}
+                onChange={(e) => updatePatient(patient.id, 'diagnosis', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: Neumonía adquirida en la comunidad"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Signos Vitales */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Signos Vitales</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Presión Arterial
+                </label>
+                <input
+                  type="text"
+                  value={patient.vitals.bp}
+                  onChange={(e) => updateVitals(patient.id, 'bp', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="120/80"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Frecuencia Cardíaca
+                </label>
+                <input
+                  type="text"
+                  value={patient.vitals.hr}
+                  onChange={(e) => updateVitals(patient.id, 'hr', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="80 lpm"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Freq. Respiratoria
+                </label>
+                <input
+                  type="text"
+                  value={patient.vitals.rr}
+                  onChange={(e) => updateVitals(patient.id, 'rr', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="16 rpm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Temperatura
+                </label>
+                <input
+                  type="text"
+                  value={patient.vitals.temp}
+                  onChange={(e) => updateVitals(patient.id, 'temp', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="36.5°C"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Saturación O2
+                </label>
+                <input
+                  type="text"
+                  value={patient.vitals.sat}
+                  onChange={(e) => updateVitals(patient.id, 'sat', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="98%"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Datos Subjetivos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Datos Subjetivos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              value={patient.subjective}
+              onChange={(e) => updatePatient(patient.id, 'subjective', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-32 resize-none"
+              placeholder="Síntomas que refiere el paciente, dolor, malestar, etc."
+            />
+          </CardContent>
+        </Card>
+
+        {/* Datos Objetivos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Datos Objetivos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              value={patient.objective}
+              onChange={(e) => updatePatient(patient.id, 'objective', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-32 resize-none"
+              placeholder="Hallazgos al examen físico, auscultación, palpación, etc."
+            />
+          </CardContent>
+        </Card>
+
+        {/* Laboratorios */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Laboratorios e Imágenes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              value={patient.labs}
+              onChange={(e) => updatePatient(patient.id, 'labs', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+              placeholder="Resultados de laboratorio, radiografías, etc."
+            />
+          </CardContent>
+        </Card>
+
+        {/* Medicamentos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Medicamentos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <textarea
+              value={patient.medications}
+              onChange={(e) => updatePatient(patient.id, 'medications', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
+              placeholder="Medicamentos actuales, dosis, frecuencia"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Notas Adicionales */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Notas Adicionales</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <textarea
+            value={patient.notes}
+            onChange={(e) => updatePatient(patient.id, 'notes', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-none"
+            placeholder="Observaciones adicionales, planes, etc."
+          />
+        </CardContent>
+      </Card>
+
+      {/* Evolución Generada */}
+      {patient.evolution && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="text-lg text-blue-800">Evolución Médica Generada</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+              {patient.evolution}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg flex items-center justify-center mr-3">
+                <span className="text-white text-xl font-bold">🏥</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">EvoMedi</h1>
+                <p className="text-sm text-gray-500">Dashboard Médico UCI</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                12 Camas Activas
+              </Badge>
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                {patients.filter(p => p.isComplete).length} Evoluciones Completas
+              </Badge>
             </div>
           </div>
-          <div className="flex space-x-4">
-            <Link 
-              href="/auth/login"
-              className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 rounded-lg transition-all duration-300 border border-white/20"
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {selectedPatient ? (
+          // Vista detallada del paciente
+          <div>
+            <Button 
+              variant="outline" 
+              onClick={() => setSelectedPatient(null)}
+              className="mb-6"
             >
-              Iniciar Sesión
-            </Link>
-            <Link 
-              href="/dashboard"
-              className="px-4 py-2 text-sm bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-lg transition-all duration-300 shadow-lg hover:shadow-blue-500/25"
-            >
-              Demo
-            </Link>
+              ← Volver al Dashboard
+            </Button>
+            <PatientForm patient={patients.find(p => p.id === selectedPatient)!} />
           </div>
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <div className="relative z-10 px-6 py-20">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="mb-8">
-            <div className="inline-flex items-center px-4 py-2 bg-blue-500/20 rounded-full text-sm text-blue-200 mb-6 border border-blue-400/30">
-              <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
-              Sistema en producción - Disponible 24/7
+        ) : (
+          // Vista del dashboard con las 12 casillas
+          <div>
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                Dashboard de Pacientes
+              </h2>
+              <p className="text-gray-600">
+                Selecciona una cama para gestionar la información del paciente
+              </p>
             </div>
             
-            <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-white via-blue-100 to-cyan-200 bg-clip-text text-transparent">
-              EvoMedi
-            </h1>
-            
-            <p className="text-xl md:text-2xl text-blue-100 mb-8 max-w-3xl mx-auto leading-relaxed">
-              Revoluciona la atención médica con IA avanzada y gestión hospitalaria inteligente
-            </p>
-            
-            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-              <Link 
-                href="/auth/login"
-                className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-xl font-semibold transition-all duration-300 shadow-2xl hover:shadow-blue-500/50 hover:scale-105"
-              >
-                <span className="flex items-center justify-center">
-                  Comenzar Ahora
-                  <svg className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </span>
-              </Link>
-              
-              <Link 
-                href="/dashboard"
-                className="px-8 py-4 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition-all duration-300 border border-white/20 hover:border-white/40 backdrop-blur-sm"
-              >
-                Ver Demo en Vivo
-              </Link>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {patients.map(patient => (
+                <PatientCard key={patient.id} patient={patient} />
+              ))}
             </div>
           </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-20">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-cyan-400 mb-2">24/7</div>
-              <div className="text-sm text-blue-200">Disponibilidad</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-400 mb-2">99.9%</div>
-              <div className="text-sm text-blue-200">Uptime</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400 mb-2">AI</div>
-              <div className="text-sm text-blue-200">Powered</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-400 mb-2">SOAP</div>
-              <div className="text-sm text-blue-200">Compatible</div>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
-
-      {/* Features Section */}
-      <div className="relative z-10 px-6 py-20">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Funcionalidades Avanzadas</h2>
-            <p className="text-xl text-blue-200">Todo lo que necesitas para una gestión médica moderna</p>
-          </div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-blue-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                🏥
-              </div>
-              <h3 className="text-xl font-bold mb-3">Gestión Hospitalaria</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Control completo de hospitales, unidades y camas con monitoreo en tiempo real y alertas inteligentes.
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-purple-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                🤖
-              </div>
-              <h3 className="text-xl font-bold mb-3">IA Médica Avanzada</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Generación automática de evoluciones SOAP con lenguaje clínico chileno y análisis predictivo.
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-green-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                👨‍⚕️
-              </div>
-              <h3 className="text-xl font-bold mb-3">Herramientas Clínicas</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Evoluciones SOAP, planes por sistemas médicos y gestión avanzada de tareas clínicas prioritarias.
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-yellow-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                📊
-              </div>
-              <h3 className="text-xl font-bold mb-3">Analytics en Tiempo Real</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Dashboard interactivo con métricas en vivo, KPIs médicos y reportes automáticos de turno.
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-red-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-red-500 to-rose-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                🔐
-              </div>
-              <h3 className="text-xl font-bold mb-3">Seguridad Máxima</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Autenticación robusta, encriptación end-to-end y cumplimiento total con normativas médicas.
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="group p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-indigo-400/50 transition-all duration-300 hover:scale-105">
-              <div className="w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center mb-6 text-2xl group-hover:scale-110 transition-transform">
-                📱
-              </div>
-              <h3 className="text-xl font-bold mb-3">Multi-Plataforma</h3>
-              <p className="text-blue-200 leading-relaxed">
-                Interfaz responsive optimizada para desktop, tablet y móvil con sincronización instantánea.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tech Stack */}
-      <div className="relative z-10 px-6 py-20">
-        <div className="max-w-7xl mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-8">Tecnología de Vanguardia</h2>
-          <div className="flex flex-wrap justify-center gap-4 mb-12">
-            {[
-              { name: 'Next.js 15', color: 'from-gray-700 to-gray-900' },
-              { name: 'React 18', color: 'from-blue-500 to-cyan-500' },
-              { name: 'TypeScript', color: 'from-blue-600 to-blue-800' },
-              { name: 'Supabase', color: 'from-green-500 to-emerald-600' },
-              { name: 'Tailwind CSS', color: 'from-cyan-400 to-blue-500' },
-              { name: 'Prisma ORM', color: 'from-purple-500 to-purple-700' },
-              { name: 'OpenAI GPT-4', color: 'from-green-400 to-blue-500' },
-              { name: 'PostgreSQL', color: 'from-blue-700 to-indigo-800' }
-            ].map((tech, index) => (
-              <div 
-                key={index}
-                className={`px-6 py-3 bg-gradient-to-r ${tech.color} rounded-full text-white font-medium shadow-lg hover:scale-105 transition-transform duration-300`}
-              >
-                {tech.name}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* CTA Section */}
-      <div className="relative z-10 px-6 py-20">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="p-12 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-3xl border border-white/20 backdrop-blur-sm">
-            <h2 className="text-4xl font-bold mb-6">¿Listo para revolucionar tu hospital?</h2>
-            <p className="text-xl text-blue-200 mb-8">
-              Únete a los hospitales que ya están transformando la atención médica con EvoMedi
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link 
-                href="/auth/login"
-                className="px-8 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-xl font-semibold transition-all duration-300 shadow-2xl hover:shadow-blue-500/50 hover:scale-105"
-              >
-                Comenzar Gratis
-              </Link>
-              <Link 
-                href="/dashboard"
-                className="px-8 py-4 bg-white/10 hover:bg-white/20 rounded-xl font-semibold transition-all duration-300 border border-white/20 hover:border-white/40"
-              >
-                Explorar Demo
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <footer className="relative z-10 px-6 py-12 border-t border-white/10">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="flex items-center justify-center space-x-3 mb-4">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-400 to-cyan-400 rounded-lg flex items-center justify-center">
-              <span className="text-sm font-bold">🏥</span>
-            </div>
-            <span className="text-xl font-bold">EvoMedi</span>
-          </div>
-          <p className="text-blue-200 mb-4">
-            Transformando la medicina, simplificando el cuidado
-          </p>
-          <div className="text-sm text-blue-300">
-            © 2024 EvoMedi. Hecho con ❤️ para los profesionales de la salud.
-          </div>
-        </div>
-      </footer>
     </div>
   )
 } 
