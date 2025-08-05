@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Hospital {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String?
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  units     Unit[]
+  users     User[]
+
+  @@map("hospitals")
+}
+
+model User {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  name          String
+  password      String?
+  authId        String?          @unique
+  role          UserRole         @default(MEDICO)
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @default(now()) @updatedAt
+  hospitalId    String
+  evolutions    Evolution[]
+  shifts        Shift[]
+  tasksAssigned Task[]           @relation("TaskAssignedTo")
+  tasksCreated  Task[]           @relation("TaskCreatedBy")
+  unitAccess    UserUnitAccess[]
+  hospital      Hospital         @relation(fields: [hospitalId], references: [id])
+
+  @@map("users")
+}
+
+model Unit {
+  id          String           @id @default(cuid())
+  name        String
+  code        String
+  color       String           @default("#3B82F6")
+  description String?
+  isActive    Boolean          @default(true)
+  maxBeds     Int              @default(12)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @default(now()) @updatedAt
+  hospitalId  String
+  beds        Bed[]
+  shifts      Shift[]
+  hospital    Hospital         @relation(fields: [hospitalId], references: [id])
+  userAccess  UserUnitAccess[]
+
+  @@unique([hospitalId, code])
+  @@map("units")
+}
+
+model UserUnitAccess {
+  id     String @id @default(cuid())
+  userId String
+  unitId String
+  unit   Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, unitId])
+  @@map("user_unit_access")
+}
+
+model Bed {
+  id        String    @id @default(cuid())
+  number    String
+  name      String?
+  position  Int
+  isActive  Boolean   @default(true)
+  status    BedStatus @default(AVAILABLE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  unitId    String
+  unit      Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  patients  Patient[]
+
+  @@unique([unitId, number])
+  @@map("beds")
+}
+
+model Patient {
+  id            String        @id @default(cuid())
+  rut           String?       @unique
+  name          String
+  lastName      String
+  birthDate     DateTime?
+  gender        Gender?
+  phone         String?
+  address       String?
+  emergency     String?
+  admissionDate DateTime      @default(now())
+  dischargeDate DateTime?
+  status        PatientStatus @default(HOSPITALIZADO)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now()) @updatedAt
+  bedId         String
+  diagnoses     Diagnosis[]
+  evolutions    Evolution[]
+  labs          Laboratory[]
+  bed           Bed           @relation(fields: [bedId], references: [id])
+  tasks         Task[]
+
+  @@map("patients")
+}
+
+model Diagnosis {
+  id          String   @id @default(cuid())
+  code        String?
+  description String
+  isPrimary   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("diagnoses")
+}
+
+model Evolution {
+  id          String       @id @default(cuid())
+  date        DateTime     @default(now())
+  subjective  String?
+  objective   String?
+  assessment  String?
+  plan        String?
+  fullText    String?
+  isGenerated Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @default(now()) @updatedAt
+  patientId   String
+  createdById String
+  createdBy   User         @relation(fields: [createdById], references: [id])
+  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  systemPlans SystemPlan[]
+
+  @@map("evolutions")
+}
+
+model SystemPlan {
+  id          String        @id @default(cuid())
+  system      MedicalSystem
+  description String
+  priority    PlanPriority  @default(NORMAL)
+  isCompleted Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @default(now()) @updatedAt
+  evolutionId String
+  evolution   Evolution     @relation(fields: [evolutionId], references: [id], onDelete: Cascade)
+
+  @@map("system_plans")
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  title        String
+  description  String?
+  priority     TaskPriority @default(NORMAL)
+  status       TaskStatus   @default(PENDIENTE)
+  dueDate      DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @default(now()) @updatedAt
+  patientId    String
+  createdById  String
+  assignedToId String?
+  assignedTo   User?        @relation("TaskAssignedTo", fields: [assignedToId], references: [id])
+  createdBy    User         @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+model Laboratory {
+  id        String   @id @default(cuid())
+  type      LabType
+  date      DateTime @default(now())
+  results   Json
+  notes     String?
+  isUrgent  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("laboratories")
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  date      DateTime
+  startTime DateTime
+  endTime   DateTime
+  summary   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  unitId    String
+  doctorId  String
+  doctor    User     @relation(fields: [doctorId], references: [id])
+  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@map("shifts")
+}
+
+model QuickNote {
+  id        String   @id @default(cuid())
+  content   String
+  bedId     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("quick_notes")
+}
+
+enum UserRole {
+  ADMIN
+  MEDICO
+  RESIDENTE
+  ENFERMERO
+  VIEWER
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  BLOCKED
+}
+
+enum Gender {
+  MASCULINO
+  FEMENINO
+  OTRO
+}
+
+enum PatientStatus {
+  HOSPITALIZADO
+  UCI
+  UCM
+  HOSDOM
+  ALTA
+  FALLECIDO
+}
+
+enum MedicalSystem {
+  CARDIOVASCULAR
+  RESPIRATORIO
+  NEUROLOGICO
+  DIGESTIVO
+  GENITOURINARIO
+  HEMATOLOGICO
+  ENDOCRINO
+  INFECCIOSO
+  PSIQUIATRICO
+  DERMATOLOGICO
+  OFTALMOLOGICO
+  OTORRINOLARINGOLOGICO
+  TRAUMATOLOGICO
+  GENERAL
+}
+
+enum PlanPriority {
+  ALTA
+  NORMAL
+  BAJA
+}
+
+enum TaskPriority {
+  URGENTE
+  ALTA
+  NORMAL
+  BAJA
+}
+
+enum TaskStatus {
+  PENDIENTE
+  EN_PROGRESO
+  COMPLETADA
+  CANCELADA
+}
+
+enum LabType {
+  HEMOGRAMA
+  QUIMICA_SANGUINEA
+  GASES_ARTERIALES
+  ELECTROLITOS
+  COAGULACION
+  ORINA
+  CULTIVOS
+  IMAGENES
+  OTROS
+}
